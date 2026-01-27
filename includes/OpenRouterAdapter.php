@@ -572,14 +572,30 @@ class OpenRouterAdapter {
   }
 
   public function embedding(string $input, string $model, bool $log = TRUE): array {
+    $start_time = microtime(TRUE);
     try {
       $response = $this->client->embeddings()->create([
         'model' => $model,
         'input' => $input,
       ])->toArray();
-      return $response['data'][0]['embedding'] ?? [];
+      $result = $response['data'][0]['embedding'] ?? [];
+      if (isset($this->api) && method_exists($this->api, 'recordLog')) {
+        $duration = microtime(TRUE) - $start_time;
+        $this->api->recordLog('embedding', $model, ['input' => $input], $response, TRUE, $duration, NULL, !$log);
+      }
+      return $result;
     } catch (TransporterException | \Exception $e) {
-      watchdog('openai', 'OpenRouter embedding error: @error', ['@error' => $e->getMessage()], WATCHDOG_ERROR);
+      if (isset($this->api) && method_exists($this->api, 'recordLog')) {
+        $duration = microtime(TRUE) - $start_time;
+        $this->api->recordLog('embedding', $model, ['input' => $input], NULL, FALSE, $duration, $e->getMessage(), !$log);
+      }
+      if ($log) {
+        $error_msg = $e->getMessage();
+        // Suppress log if it's a "does not support embeddings" or similar during probing.
+        if (strpos($error_msg, 'does not support embeddings') === FALSE && strpos($error_msg, 'not found') === FALSE) {
+          watchdog('openai', 'OpenRouter embedding error: @error', ['@error' => $error_msg], WATCHDOG_ERROR);
+        }
+      }
       return [];
     }
   }
